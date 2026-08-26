@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 
 	"github.com/cli/go-gh/v2/pkg/repository"
 
@@ -47,7 +48,7 @@ FLAGS
 	fs.BoolVar(&jsonOut, "json", false, "Output stack status as JSON")
 	fs.BoolVar(&help, "h", false, "Show help")
 	fs.BoolVar(&help, "help", false, "Show help")
-	if err := fs.Parse(args); err != nil {
+	if err := fs.Parse(reorderArgs(args)); err != nil {
 		if err == flag.ErrHelp {
 			return nil
 		}
@@ -93,4 +94,24 @@ FLAGS
 	}
 
 	return render.Write(stdout, stack, pal, render.Options{JSON: jsonOut, Short: short})
+}
+
+// reorderArgs moves operands after flags so that flags may appear anywhere on
+// the command line, as they do in gh itself. All flags here are booleans, so no
+// operand can be a flag value.
+func reorderArgs(args []string) []string {
+	flags := make([]string, 0, len(args))
+	operands := make([]string, 0, len(args))
+	for i, a := range args {
+		if a == "--" {
+			operands = append(operands, args[i+1:]...)
+			break
+		}
+		if strings.HasPrefix(a, "-") && a != "-" {
+			flags = append(flags, a)
+			continue
+		}
+		operands = append(operands, a)
+	}
+	return append(flags, operands...)
 }

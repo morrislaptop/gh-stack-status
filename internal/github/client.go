@@ -181,8 +181,53 @@ func (c *Client) queryStackByPR(owner, repo string, number int) (*model.Stack, *
 	if meta == nil {
 		return nil, first, nil
 	}
+	for _, e := range entries {
+		if err := c.fetchRemainingContexts(owner, repo, e.PullRequest); err != nil {
+			return nil, nil, err
+		}
+	}
 	stack := parseGQLStack(meta, entries)
 	return stack, first, nil
+}
+
+// fetchRemainingContexts pages through check contexts beyond the first page.
+// Without every context, a superseded run can be mistaken for the latest one.
+func (c *Client) fetchRemainingContexts(owner, repo string, pr *gqlPR) error {
+	if pr == nil || pr.StatusCheckRollup == nil {
+		return nil
+	}
+	page := pr.StatusCheckRollup.Contexts.PageInfo
+	for page.HasNextPage && page.EndCursor != "" {
+		var data struct {
+			Repository *struct {
+				PullRequest *struct {
+					StatusCheckRollup *struct {
+						Contexts gqlContexts `json:"contexts"`
+					} `json:"statusCheckRollup"`
+				} `json:"pullRequest"`
+			} `json:"repository"`
+		}
+		vars := map[string]interface{}{
+			"owner":  owner,
+			"name":   repo,
+			"number": pr.Number,
+			"cursor": page.EndCursor,
+		}
+		if err := c.gql.Do(prContextsQuery, vars, &data); err != nil {
+			return err
+		}
+		if data.Repository == nil || data.Repository.PullRequest == nil ||
+			data.Repository.PullRequest.StatusCheckRollup == nil {
+			return nil
+		}
+		next := data.Repository.PullRequest.StatusCheckRollup.Contexts
+		pr.StatusCheckRollup.Contexts.Nodes = append(pr.StatusCheckRollup.Contexts.Nodes, next.Nodes...)
+		if next.PageInfo == page {
+			return nil
+		}
+		page = next.PageInfo
+	}
+	return nil
 }
 
 func (c *Client) hydrateRESTStack(owner, repo string, rest *restStack) (*model.Stack, error) {
@@ -253,6 +298,9 @@ func (c *Client) queryPRsByNumbers(owner, repo string, numbers []int) ([]model.P
 	for i := range numbers {
 		alias := fmt.Sprintf("n%d", i)
 		if pr, ok := wrap.Repository[alias]; ok && pr != nil {
+			if err := c.fetchRemainingContexts(owner, repo, pr); err != nil {
+				return nil, err
+			}
 			out = append(out, pr.toModel(i+1))
 		}
 	}

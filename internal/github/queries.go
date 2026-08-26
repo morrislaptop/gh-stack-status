@@ -1,5 +1,26 @@
 package github
 
+const checkContextFields = `
+      __typename
+      ... on CheckRun {
+        name
+        status
+        conclusion
+        startedAt
+        completedAt
+        checkSuite {
+          workflowRun {
+            workflow { name }
+          }
+        }
+      }
+      ... on StatusContext {
+        context
+        state
+        createdAt
+      }
+`
+
 const prStatusFragment = `
 fragment PRStatus on PullRequest {
   number
@@ -27,17 +48,12 @@ fragment PRStatus on PullRequest {
   statusCheckRollup {
     state
     contexts(first: 100) {
+      pageInfo {
+        hasNextPage
+        endCursor
+      }
       nodes {
-        __typename
-        ... on CheckRun {
-          name
-          status
-          conclusion
-        }
-        ... on StatusContext {
-          context
-          state
-        }
+` + checkContextFields + `
       }
     }
   }
@@ -73,6 +89,27 @@ query StackByPR($owner: String!, $name: String!, $number: Int!, $cursor: String)
 
 const prsByNumbersPrefix = prStatusFragment + `
 query PRsByNumbers($owner: String!, $name: String!`
+
+// prContextsQuery fetches additional pages of a single pull request's check contexts.
+const prContextsQuery = `
+query PRContexts($owner: String!, $name: String!, $number: Int!, $cursor: String!) {
+  repository(owner: $owner, name: $name) {
+    pullRequest(number: $number) {
+      statusCheckRollup {
+        contexts(first: 100, after: $cursor) {
+          pageInfo {
+            hasNextPage
+            endCursor
+          }
+          nodes {
+` + checkContextFields + `
+          }
+        }
+      }
+    }
+  }
+}
+`
 
 const branchPRQuery = `
 query BranchPR($owner: String!, $name: String!, $qualifiedName: String!) {

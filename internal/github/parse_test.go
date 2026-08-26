@@ -3,6 +3,8 @@ package github
 import (
 	"encoding/json"
 	"testing"
+
+	"github.com/morrislaptop/gh-stack-status/internal/model"
 )
 
 func TestParseChecksAndReviews(t *testing.T) {
@@ -104,16 +106,124 @@ func TestParseChecksEmpty(t *testing.T) {
 
 func TestParseChecksInfersTypename(t *testing.T) {
 	ok := "SUCCESS"
-	c := parseChecks(&gqlRollup{
-		State: "SUCCESS",
-		Contexts: struct {
-			Nodes []gqlContext `json:"nodes"`
-		}{Nodes: []gqlContext{
-			{Name: "build", Status: "COMPLETED", Conclusion: &ok},
-			{Context: "coverage", State: "SUCCESS"},
-		}},
-	})
+	c := rollupWith([]gqlContext{
+		{Name: "build", Status: "COMPLETED", Conclusion: &ok},
+		{Context: "coverage", State: "SUCCESS"},
+	}, "SUCCESS")
 	if c.Passed != 2 {
 		t.Fatalf("passed %d", c.Passed)
 	}
+}
+
+func rollupWith(nodes []gqlContext, state string) model.Checks {
+	r := &gqlRollup{State: state}
+	r.Contexts.Nodes = nodes
+	return parseChecks(r)
+}
+
+// A check that was cancelled because a later run of the same check in the same
+// workflow superseded it must not be reported as failing.
+func TestSupersededCancelledRunIsNotFailing(t *testing.T) {
+	cancelled := "CANCELLED"
+	success := "SUCCESS"
+	autoApprove := checkSuiteFor("Auto approve")
+	codeStyle := checkSuiteFor("Code style")
+
+	c := rollupWith([]gqlContext{
+		{Typename: "CheckRun", Name: "build", Status: "COMPLETED", Conclusion: &cancelled, StartedAt: "2026-08-26T02:09:05Z", CheckSuite: autoApprove},
+		{Typename: "CheckRun", Name: "build", Status: "COMPLETED", Conclusion: &success, StartedAt: "2026-08-26T02:09:10Z", CheckSuite: autoApprove},
+		{Typename: "CheckRun", Name: "code-style", Status: "COMPLETED", Conclusion: &cancelled, StartedAt: "2026-08-26T02:09:08Z", CheckSuite: codeStyle},
+		{Typename: "CheckRun", Name: "code-style", Status: "COMPLETED", Conclusion: &success, StartedAt: "2026-08-26T02:09:12Z", CheckSuite: codeStyle},
+	}, "FAILURE")
+
+	if c.State != "SUCCESS" {
+		t.Fatalf("state %q, want SUCCESS (reported rollup state counts superseded runs)", c.State)
+	}
+	if c.Failed != 0 || len(c.FailedNames) != 0 {
+		t.Fatalf("failed=%d names=%v", c.Failed, c.FailedNames)
+	}
+	if c.Passed != 2 {
+		t.Fatalf("passed %d, want 2", c.Passed)
+	}
+}
+
+// The same check name in different workflows is a different check.
+func TestSameNameInDifferentWorkflowsKeptSeparate(t *testing.T) {
+	success := "SUCCESS"
+	fail := "FAILURE"
+	c := rollupWith([]gqlContext{
+		{Typename: "CheckRun", Name: "build", Status: "COMPLETED", Conclusion: &success, StartedAt: "2026-08-26T02:09:10Z", CheckSuite: checkSuiteFor("Auto approve")},
+		{Typename: "CheckRun", Name: "build", Status: "COMPLETED", Conclusion: &fail, StartedAt: "2026-08-26T02:09:12Z", CheckSuite: checkSuiteFor("superquote-app checks")},
+	}, "FAILURE")
+
+	if c.Passed != 1 || c.Failed != 1 {
+		t.Fatalf("passed=%d failed=%d", c.Passed, c.Failed)
+	}
+	if c.State != "FAILURE" {
+		t.Fatalf("state %q", c.State)
+	}
+}
+
+func TestNeutralAndSkippedCountAsSkipped(t *testing.T) {
+	neutral := "NEUTRAL"
+	skipped := "SKIPPED"
+	success := "SUCCESS"
+	c := rollupWith([]gqlContext{
+		{Typename: "CheckRun", Name: "Header rules", Status: "COMPLETED", Conclusion: &neutral},
+		{Typename: "CheckRun", Name: "Pages changed", Status: "COMPLETED", Conclusion: &skipped},
+		{Typename: "CheckRun", Name: "build", Status: "COMPLETED", Conclusion: &success},
+	}, "SUCCESS")
+
+	if c.Skipped != 2 || c.Passed != 1 {
+		t.Fatalf("skipped=%d passed=%d", c.Skipped, c.Passed)
+	}
+	if c.Counted() != 1 || c.Total() != 3 {
+		t.Fatalf("counted=%d total=%d", c.Counted(), c.Total())
+	}
+	if c.State != "SUCCESS" {
+		t.Fatalf("state %q", c.State)
+	}
+}
+
+func TestStatusContextsDedupedByContext(t *testing.T) {
+	c := rollupWith([]gqlContext{
+		{Typename: "StatusContext", Context: "deploy/netlify", State: "FAILURE", CreatedAt: "2026-08-26T02:09:00Z"},
+		{Typename: "StatusContext", Context: "deploy/netlify", State: "SUCCESS", CreatedAt: "2026-08-26T02:11:00Z"},
+	}, "FAILURE")
+	if c.Passed != 1 || c.Failed != 0 {
+		t.Fatalf("passed=%d failed=%d", c.Passed, c.Failed)
+	}
+}
+
+func TestPendingRunWinsOverOlderFailure(t *testing.T) {
+	fail := "FAILURE"
+	c := rollupWith([]gqlContext{
+		{Typename: "CheckRun", Name: "test", Status: "COMPLETED", Conclusion: &fail, StartedAt: "2026-08-26T02:09:00Z", CheckSuite: checkSuiteFor("CI")},
+		{Typename: "CheckRun", Name: "test", Status: "IN_PROGRESS", StartedAt: "2026-08-26T02:20:00Z", CheckSuite: checkSuiteFor("CI")},
+	}, "FAILURE")
+	if c.Pending != 1 || c.Failed != 0 || c.State != "PENDING" {
+		t.Fatalf("%+v", c)
+	}
+}
+
+func checkSuiteFor(workflow string) *struct {
+	WorkflowRun *struct {
+		Workflow *struct {
+			Name string `json:"name"`
+		} `json:"workflow"`
+	} `json:"workflowRun"`
+} {
+	var ctx gqlContext
+	if err := json.Unmarshal([]byte(`{"checkSuite":{"workflowRun":{"workflow":{"name":`+jsonString(workflow)+`}}}}`), &ctx); err != nil {
+		panic(err)
+	}
+	return ctx.CheckSuite
+}
+
+func jsonString(s string) string {
+	b, err := json.Marshal(s)
+	if err != nil {
+		panic(err)
+	}
+	return string(b)
 }

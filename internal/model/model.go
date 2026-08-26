@@ -27,10 +27,17 @@ type Checks struct {
 	Passed      int
 	Failed      int
 	Pending     int
+	Skipped     int
 	FailedNames []string
 }
 
 func (c Checks) Total() int {
+	return c.Passed + c.Failed + c.Pending + c.Skipped
+}
+
+// Counted is the number of checks that contribute to pass/fail, excluding
+// skipped and neutral results.
+func (c Checks) Counted() int {
 	return c.Passed + c.Failed + c.Pending
 }
 

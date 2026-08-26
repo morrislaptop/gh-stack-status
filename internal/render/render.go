@@ -70,6 +70,7 @@ type jsonChecks struct {
 	Passed      int      `json:"passed"`
 	Failed      int      `json:"failed"`
 	Pending     int      `json:"pending"`
+	Skipped     int      `json:"skipped"`
 	FailedNames []string `json:"failedNames"`
 }
 
@@ -105,6 +106,7 @@ func writeJSON(w io.Writer, stack *model.Stack) error {
 				Passed:      pr.Checks.Passed,
 				Failed:      pr.Checks.Failed,
 				Pending:     pr.Checks.Pending,
+				Skipped:     pr.Checks.Skipped,
 				FailedNames: failed,
 			},
 			Reviews: jsonReviews{
@@ -248,13 +250,14 @@ func checkDetail(c model.Checks) string {
 	if c.Total() == 0 {
 		return ""
 	}
-	if state == "PENDING" || state == "EXPECTED" || state == "SUCCESS" {
-		return fmt.Sprintf("(%d/%d)", c.Passed, c.Total())
-	}
+	counts := fmt.Sprintf("%d/%d", c.Passed, c.Counted())
 	if state == "FAILURE" || state == "ERROR" {
-		return fmt.Sprintf("(%d/%d)", c.Failed, c.Total())
+		counts = fmt.Sprintf("%d/%d", c.Failed, c.Counted())
 	}
-	return fmt.Sprintf("(%d/%d)", c.Passed, c.Total())
+	if c.Skipped > 0 {
+		counts += fmt.Sprintf(", %d skipped", c.Skipped)
+	}
+	return "(" + counts + ")"
 }
 
 func FormatReviews(r model.Reviews, pal Palette) string {

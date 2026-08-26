@@ -56,12 +56,16 @@ The listing is top of stack first (furthest from trunk), then trunk at the botto
 
 **Checks** come from `statusCheckRollup` on each pull request:
 
-| Rollup | Display |
-|--------|---------|
-| `SUCCESS` | `pass (passed/total)` |
-| `FAILURE` / `ERROR` | `fail` plus up to three failing check names |
-| `PENDING` / `EXPECTED` | `pending (passed/total)` |
-| no contexts | `—` |
+| State | Display |
+|-------|---------|
+| all complete and passing | `pass (passed/total)` |
+| any failing | `fail` plus up to three failing check names |
+| any still running | `pending (passed/total)` |
+| no checks | `—` |
+
+Neutral and skipped checks are reported separately as `N skipped` and are left out of the total, so the counts line up with `gh pr checks`.
+
+Repeated runs of the same check are collapsed to the most recent run, keyed by check name and workflow. This matters because `statusCheckRollup.state` counts superseded runs: when a job is cancelled and re-run, GitHub keeps the cancelled run in the rollup and reports `FAILURE` even though the PR is green in the web UI. The extension derives the state from the de-duplicated checks instead.
 
 **Reviews** use `reviewDecision`, plus latest reviews and outstanding review requests:
 

@@ -16,6 +16,24 @@ func TestHelp(t *testing.T) {
 	}
 }
 
+func TestReorderArgs(t *testing.T) {
+	cases := []struct {
+		in   []string
+		want []string
+	}{
+		{[]string{"17744", "--short"}, []string{"--short", "17744"}},
+		{[]string{"--json", "17744"}, []string{"--json", "17744"}},
+		{[]string{"-s"}, []string{"-s"}},
+		{[]string{"--", "-weird-branch"}, []string{"-weird-branch"}},
+	}
+	for _, tc := range cases {
+		got := reorderArgs(tc.in)
+		if strings.Join(got, " ") != strings.Join(tc.want, " ") {
+			t.Fatalf("%v: got %v want %v", tc.in, got, tc.want)
+		}
+	}
+}
+
 func TestTooManyArgs(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	err := run([]string{"1", "2"}, &stdout, &stderr)

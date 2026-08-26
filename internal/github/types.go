@@ -74,19 +74,50 @@ func (r *gqlReviewer) DisplayName() string {
 }
 
 type gqlRollup struct {
-	State    string `json:"state"`
-	Contexts struct {
-		Nodes []gqlContext `json:"nodes"`
-	} `json:"contexts"`
+	State    string      `json:"state"`
+	Contexts gqlContexts `json:"contexts"`
+}
+
+type gqlContexts struct {
+	PageInfo struct {
+		HasNextPage bool   `json:"hasNextPage"`
+		EndCursor   string `json:"endCursor"`
+	} `json:"pageInfo"`
+	Nodes []gqlContext `json:"nodes"`
 }
 
 type gqlContext struct {
-	Typename   string  `json:"__typename"`
-	Name       string  `json:"name"`
-	Status     string  `json:"status"`
-	Conclusion *string `json:"conclusion"`
-	Context    string  `json:"context"`
-	State      string  `json:"state"`
+	Typename    string  `json:"__typename"`
+	Name        string  `json:"name"`
+	Status      string  `json:"status"`
+	Conclusion  *string `json:"conclusion"`
+	StartedAt   string  `json:"startedAt"`
+	CompletedAt string  `json:"completedAt"`
+	CheckSuite  *struct {
+		WorkflowRun *struct {
+			Workflow *struct {
+				Name string `json:"name"`
+			} `json:"workflow"`
+		} `json:"workflowRun"`
+	} `json:"checkSuite"`
+	Context   string `json:"context"`
+	State     string `json:"state"`
+	CreatedAt string `json:"createdAt"`
+}
+
+func (c gqlContext) workflowName() string {
+	if c.CheckSuite == nil || c.CheckSuite.WorkflowRun == nil || c.CheckSuite.WorkflowRun.Workflow == nil {
+		return ""
+	}
+	return c.CheckSuite.WorkflowRun.Workflow.Name
+}
+
+// startedTime is the timestamp used to pick the most recent run of a check.
+func (c gqlContext) startedTime() string {
+	if c.StartedAt != "" {
+		return c.StartedAt
+	}
+	return c.CreatedAt
 }
 
 type restStack struct {
