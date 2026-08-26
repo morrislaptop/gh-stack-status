@@ -20,6 +20,16 @@ type PullRequest struct {
 	Position int
 	Checks   Checks
 	Reviews  Reviews
+	Rebase   Rebase
+}
+
+// Rebase is whether this layer is up to date with the branch it targets
+// (the PR below it, or trunk for the bottom of the stack).
+type Rebase struct {
+	// Status is UP_TO_DATE, BEHIND, CONFLICT, or UNKNOWN.
+	Status           string
+	Mergeable        string // MERGEABLE, CONFLICTING, UNKNOWN
+	MergeStateStatus string // CLEAN, UNSTABLE, BEHIND, DIRTY, BLOCKED, ...
 }
 
 type Checks struct {

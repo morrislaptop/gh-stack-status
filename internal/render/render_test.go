@@ -20,18 +20,21 @@ func sample() *model.Stack {
 				Branch: "auth-layer", State: "OPEN", Position: 1,
 				Checks:  model.Checks{State: "SUCCESS", Passed: 12, Failed: 0, Pending: 0},
 				Reviews: model.Reviews{Decision: "APPROVED", Approved: []string{"alice"}},
+				Rebase:  model.Rebase{Status: "UP_TO_DATE", Mergeable: "MERGEABLE", MergeStateStatus: "CLEAN"},
 			},
 			{
 				Number: 102, Title: "api", URL: "https://example.com/102",
 				Branch: "api-endpoints", State: "OPEN", Position: 2,
 				Checks:  model.Checks{State: "FAILURE", Passed: 7, Failed: 1, Pending: 0, FailedNames: []string{"lint"}},
 				Reviews: model.Reviews{Decision: "CHANGES_REQUESTED", ChangesRequested: []string{"bob"}},
+				Rebase:  model.Rebase{Status: "BEHIND", Mergeable: "MERGEABLE", MergeStateStatus: "BEHIND"},
 			},
 			{
 				Number: 103, Title: "ui", URL: "https://example.com/103",
 				Branch: "frontend", State: "OPEN", Position: 3,
 				Checks:  model.Checks{State: "PENDING", Passed: 3, Failed: 0, Pending: 5},
 				Reviews: model.Reviews{Decision: "REVIEW_REQUIRED", Pending: []string{"carol"}},
+				Rebase:  model.Rebase{Status: "CONFLICT", Mergeable: "CONFLICTING", MergeStateStatus: "DIRTY"},
 			},
 		},
 	}
@@ -69,8 +72,14 @@ func TestWriteTable(t *testing.T) {
 	if !strings.Contains(got, "pending (3/8)") {
 		t.Fatalf("pending counts:\n%s", got)
 	}
-	if !strings.Contains(got, "approved (alice)") {
-		t.Fatalf("reviews:\n%s", got)
+	if !strings.Contains(got, "behind") {
+		t.Fatalf("rebase behind:\n%s", got)
+	}
+	if !strings.Contains(got, "conflict") {
+		t.Fatalf("rebase conflict:\n%s", got)
+	}
+	if !strings.Contains(got, "up to date") {
+		t.Fatalf("rebase up to date:\n%s", got)
 	}
 	if !strings.HasSuffix(strings.TrimSpace(got), "main") {
 		t.Fatalf("trunk at bottom:\n%s", got)
@@ -84,9 +93,9 @@ func TestWriteShort(t *testing.T) {
 	}
 	got := buf.String()
 	want := []string{
-		"#103  pending (3/8)  review required (carol)",
-		"#102  fail (lint)  changes requested (bob)",
-		"#101  pass (12/12)  approved (alice)",
+		"#103  conflict  pending (3/8)  review required (carol)",
+		"#102  behind  fail (lint)  changes requested (bob)",
+		"#101  up to date  pass (12/12)  approved (alice)",
 	}
 	lines := strings.Split(strings.TrimRight(got, "\n"), "\n")
 	if len(lines) != 3 {
@@ -119,6 +128,9 @@ func TestWriteJSON(t *testing.T) {
 	}
 	if out.PullRequests[1].Checks.FailedNames[0] != "lint" {
 		t.Fatalf("failed names %v", out.PullRequests[1].Checks.FailedNames)
+	}
+	if out.PullRequests[1].Rebase.Status != "BEHIND" {
+		t.Fatalf("rebase %+v", out.PullRequests[1].Rebase)
 	}
 }
 

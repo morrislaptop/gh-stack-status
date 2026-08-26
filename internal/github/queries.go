@@ -29,6 +29,8 @@ fragment PRStatus on PullRequest {
   state
   isDraft
   headRefName
+  mergeable
+  mergeStateStatus
   reviewDecision
   latestReviews(first: 50) {
     nodes {

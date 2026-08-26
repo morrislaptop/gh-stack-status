@@ -45,9 +45,9 @@ A bare number is tried as a **stack number** first, then as a **pull request num
 ```
 Stack #6  targeting main  3 PRs
 
-  frontend       #103   pending (3/8, 2 skipped)  review required (carol)
-» api-endpoints  #102   fail (lint)               changes requested (bob)
-  auth-layer     #101   pass (12/12)              approved (alice)
+  frontend       #103   conflict    pending (3/8, 2 skipped)  review required (carol)
+» api-endpoints  #102   behind      fail (lint)               changes requested (bob)
+  auth-layer     #101   up to date  pass (12/12)              approved (alice)
 ─────────────────────────────────────
   main
 ```
@@ -55,6 +55,17 @@ Stack #6  targeting main  3 PRs
 The listing is top of stack first (furthest from trunk), then trunk at the bottom — the same orientation as `gh stack view`. `»` marks the currently checked-out branch.
 
 Color follows the usual GitHub CLI rules: it is on for terminals and off when piped, and honours `NO_COLOR`, `CLICOLOR_FORCE`, and `GH_FORCE_TTY`.
+
+**Rebase** is whether this layer is up to date with the branch it targets — the PR below it, or trunk for the bottom of the stack. It comes from `mergeable` and `mergeStateStatus`, not from local `gh stack` metadata.
+
+| State | Display |
+|-------|---------|
+| current with its base | `up to date` |
+| head is behind the base (`BEHIND`) | `behind` |
+| cannot merge cleanly (`CONFLICTING` / `DIRTY`) | `conflict` |
+| GitHub has not computed it yet | `—` |
+
+Failing checks (`UNSTABLE`) and branch-protection blocks (`BLOCKED`) are not rebase problems; those still show as `up to date`.
 
 **Checks** come from `statusCheckRollup` on each pull request:
 
@@ -78,9 +89,9 @@ Repeated runs of the same check are collapsed to the most recent run, keyed by c
 | `REVIEW_REQUIRED` | `review required` and pending reviewers |
 | none (for example drafts) | `—` |
 
-`--short` prints one line per PR: number, checks, reviews.
+`--short` prints one line per PR: number, rebase, checks, reviews.
 
-`--json` prints bottom-to-top stack data (position 1 first), including check counts, failed names, and reviewer logins. Suitable for scripts.
+`--json` prints bottom-to-top stack data (position 1 first), including rebase status, check counts, failed names, and reviewer logins. Suitable for scripts.
 
 ## Develop
 

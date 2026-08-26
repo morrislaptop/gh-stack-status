@@ -227,3 +227,26 @@ func jsonString(s string) string {
 	}
 	return string(b)
 }
+
+func TestParseRebase(t *testing.T) {
+	cases := []struct {
+		mergeable, state, want string
+	}{
+		{"MERGEABLE", "CLEAN", "UP_TO_DATE"},
+		{"MERGEABLE", "UNSTABLE", "UP_TO_DATE"},
+		{"MERGEABLE", "BLOCKED", "UP_TO_DATE"},
+		{"MERGEABLE", "DRAFT", "UP_TO_DATE"},
+		{"MERGEABLE", "BEHIND", "BEHIND"},
+		{"CONFLICTING", "DIRTY", "CONFLICT"},
+		{"CONFLICTING", "BLOCKED", "CONFLICT"},
+		{"MERGEABLE", "DIRTY", "CONFLICT"},
+		{"UNKNOWN", "UNKNOWN", "UNKNOWN"},
+		{"", "", "UNKNOWN"},
+	}
+	for _, tc := range cases {
+		got := parseRebase(tc.mergeable, tc.state)
+		if got.Status != tc.want {
+			t.Errorf("parseRebase(%q, %q) = %q, want %q", tc.mergeable, tc.state, got.Status, tc.want)
+		}
+	}
+}

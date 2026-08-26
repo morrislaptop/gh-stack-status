@@ -43,6 +43,7 @@ func (pr *gqlPR) toModel(position int) model.PullRequest {
 		Position: position,
 		Checks:   parseChecks(pr.StatusCheckRollup),
 		Reviews:  parseReviews(pr.ReviewDecision, pr),
+		Rebase:   parseRebase(pr.Mergeable, pr.MergeStateStatus),
 	}
 	return out
 }
@@ -207,6 +208,23 @@ func parseReviews(decision *string, pr *gqlPR) model.Reviews {
 		}
 		pendingSeen[name] = true
 		r.Pending = append(r.Pending, name)
+	}
+	return r
+}
+
+func parseRebase(mergeable, mergeState string) model.Rebase {
+	m := strings.ToUpper(strings.TrimSpace(mergeable))
+	s := strings.ToUpper(strings.TrimSpace(mergeState))
+	r := model.Rebase{Mergeable: m, MergeStateStatus: s}
+	switch {
+	case m == "CONFLICTING" || s == "DIRTY":
+		r.Status = "CONFLICT"
+	case s == "BEHIND":
+		r.Status = "BEHIND"
+	case m == "UNKNOWN" || s == "UNKNOWN" || (m == "" && s == ""):
+		r.Status = "UNKNOWN"
+	default:
+		r.Status = "UP_TO_DATE"
 	}
 	return r
 }

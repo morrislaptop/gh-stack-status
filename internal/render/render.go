@@ -61,8 +61,15 @@ type jsonPR struct {
 	Draft     bool        `json:"draft"`
 	IsCurrent bool        `json:"isCurrent"`
 	Position  int         `json:"position"`
+	Rebase    jsonRebase  `json:"rebase"`
 	Checks    jsonChecks  `json:"checks"`
 	Reviews   jsonReviews `json:"reviews"`
+}
+
+type jsonRebase struct {
+	Status           string `json:"status"`
+	Mergeable        string `json:"mergeable"`
+	MergeStateStatus string `json:"mergeStateStatus"`
 }
 
 type jsonChecks struct {
@@ -101,6 +108,11 @@ func writeJSON(w io.Writer, stack *model.Stack) error {
 			Draft:     pr.Draft,
 			IsCurrent: pr.IsCurrent(stack.CurrentBranch),
 			Position:  pr.Position,
+			Rebase: jsonRebase{
+				Status:           pr.Rebase.Status,
+				Mergeable:        pr.Rebase.Mergeable,
+				MergeStateStatus: pr.Rebase.MergeStateStatus,
+			},
 			Checks: jsonChecks{
 				State:       pr.Checks.State,
 				Passed:      pr.Checks.Passed,
@@ -132,7 +144,7 @@ func nonNil(s []string) []string {
 func writeShort(w io.Writer, stack *model.Stack, pal Palette) error {
 	prs := displayOrder(stack.PullRequests)
 	for _, pr := range prs {
-		fmt.Fprintf(w, "#%d  %s  %s\n", pr.Number, FormatChecks(pr.Checks, pal), FormatReviews(pr.Reviews, pal))
+		fmt.Fprintf(w, "#%d  %s  %s  %s\n", pr.Number, FormatRebase(pr.Rebase, pal), FormatChecks(pr.Checks, pal), FormatReviews(pr.Reviews, pal))
 	}
 	return nil
 }
@@ -148,9 +160,9 @@ func writeTable(w io.Writer, stack *model.Stack, pal Palette) error {
 	fmt.Fprintln(w)
 
 	prs := displayOrder(stack.PullRequests)
-	branchW, checksW := 0, 0
+	branchW, rebaseW, checksW := 0, 0, 0
 	type row struct {
-		marker, branch, pr, checks, reviews string
+		marker, branch, pr, rebase, checks, reviews string
 	}
 	rows := make([]row, 0, len(prs))
 	for _, pr := range prs {
@@ -158,10 +170,14 @@ func writeTable(w io.Writer, stack *model.Stack, pal Palette) error {
 		if pr.IsCurrent(stack.CurrentBranch) {
 			marker = pal.Cyan("»")
 		}
+		rebase := FormatRebase(pr.Rebase, pal)
 		checks := FormatChecks(pr.Checks, pal)
 		reviews := FormatReviews(pr.Reviews, pal)
 		if len(pr.Branch) > branchW {
 			branchW = len(pr.Branch)
+		}
+		if visibleLen(rebase) > rebaseW {
+			rebaseW = visibleLen(rebase)
 		}
 		if visibleLen(checks) > checksW {
 			checksW = visibleLen(checks)
@@ -170,6 +186,7 @@ func writeTable(w io.Writer, stack *model.Stack, pal Palette) error {
 			marker:  marker,
 			branch:  pr.Branch,
 			pr:      fmt.Sprintf("#%d", pr.Number),
+			rebase:  rebase,
 			checks:  checks,
 			reviews: reviews,
 		})
@@ -179,10 +196,11 @@ func writeTable(w io.Writer, stack *model.Stack, pal Palette) error {
 	}
 
 	for _, r := range rows {
-		fmt.Fprintf(w, "%s %-*s  %-5s  %s  %s\n",
+		fmt.Fprintf(w, "%s %-*s  %-5s  %s  %s  %s\n",
 			padMarker(r.marker),
 			branchW, r.branch,
 			r.pr,
+			padVisible(r.rebase, rebaseW),
 			padVisible(r.checks, checksW),
 			r.reviews,
 		)
@@ -205,6 +223,22 @@ func displayOrder(prs []model.PullRequest) []model.PullRequest {
 		out[len(prs)-1-i] = pr
 	}
 	return out
+}
+
+func FormatRebase(r model.Rebase, pal Palette) string {
+	if pal == nil {
+		pal = PlainPalette{}
+	}
+	switch strings.ToUpper(r.Status) {
+	case "UP_TO_DATE":
+		return pal.Green("up to date")
+	case "BEHIND":
+		return pal.Yellow("behind")
+	case "CONFLICT":
+		return pal.Red("conflict")
+	default:
+		return pal.Gray("—")
+	}
 }
 
 func FormatChecks(c model.Checks, pal Palette) string {

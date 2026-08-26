@@ -36,6 +36,8 @@ type gqlPR struct {
 	State            string  `json:"state"`
 	IsDraft          bool    `json:"isDraft"`
 	HeadRefName      string  `json:"headRefName"`
+	Mergeable        string  `json:"mergeable"`
+	MergeStateStatus string  `json:"mergeStateStatus"`
 	ReviewDecision   *string `json:"reviewDecision"`
 	LatestReviews    struct {
 		Nodes []struct {
