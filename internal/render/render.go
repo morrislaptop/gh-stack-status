@@ -195,8 +195,10 @@ func writeTable(w io.Writer, stack *model.Stack, pal Palette) error {
 		branchW = 6
 	}
 
+	lineW := visibleLen(header)
+	outLines := make([]string, 0, len(rows))
 	for _, r := range rows {
-		fmt.Fprintf(w, "%s %-*s  %-5s  %s  %s  %s\n",
+		line := fmt.Sprintf("%s %-*s  %-5s  %s  %s  %s",
 			padMarker(r.marker),
 			branchW, r.branch,
 			r.pr,
@@ -204,8 +206,15 @@ func writeTable(w io.Writer, stack *model.Stack, pal Palette) error {
 			padVisible(r.checks, checksW),
 			r.reviews,
 		)
+		outLines = append(outLines, line)
+		if visibleLen(line) > lineW {
+			lineW = visibleLen(line)
+		}
 	}
-	fmt.Fprintln(w, pal.Gray(strings.Repeat("─", max(12, branchW+24))))
+	for _, line := range outLines {
+		fmt.Fprintln(w, line)
+	}
+	fmt.Fprintln(w, pal.Gray(strings.Repeat("─", max(12, lineW))))
 	fmt.Fprintf(w, "  %s\n", pal.Gray(stack.Base))
 	return nil
 }

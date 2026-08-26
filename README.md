@@ -2,7 +2,7 @@
 
 A [GitHub CLI](https://cli.github.com/) extension that lists each pull request in a GitHub **stack**, with CI check rollup and reviewer status for every layer.
 
-![gh stack-status output](docs/example.svg)
+![gh stack-status output](docs/example.png)
 
 GitHub CLI extensions cannot add subcommands to another extension, so this is `gh stack-status`, not `gh stack status`. It does not wrap `gh stack view` and does not read `.git/gh-stack`. It uses the GitHub Stacks GraphQL/REST APIs, so only stacks that exist on GitHub are shown.
 
