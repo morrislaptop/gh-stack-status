@@ -102,4 +102,29 @@ gh extension install .
 gh stack-status --help
 ```
 
-Precompiled binaries for releases are built by [cli/gh-extension-precompile](https://github.com/cli/gh-extension-precompile) in `.github/workflows/release.yml`.
+Precompiled CLI binaries for releases are built by [cli/gh-extension-precompile](https://github.com/cli/gh-extension-precompile) in `.github/workflows/release.yml`.
+
+## Chrome extension
+
+`chrome/` is a Manifest V3 extension that paints the same status onto GitHub’s stack map (the “Stack #N” popover on a pull request). Each layer gets:
+
+- an overall badge: **Ready**, **Not ready**, or **Blocked downstack**
+- the CLI’s rebase, checks, and review labels
+
+GitHub’s stack map does not include CI or review rollup, so the extension loads that data from the GitHub GraphQL API (the same queries as this CLI) and injects it into the existing rows.
+
+### Load unpacked
+
+1. Open `chrome://extensions`, enable **Developer mode**, and click **Load unpacked**.
+2. Select the `chrome/` directory in this repo.
+3. Open the extension’s **Options**, paste a GitHub token, and save.
+4. Reload a stacked pull request on github.com and open the stack map.
+
+Fine-grained tokens need **Pull requests: Read** on the repository. Classic tokens need `repo` (private) or `public_repo` (public). The token is stored in `chrome.storage.sync` and is only sent to `api.github.com` (or the API base you configure).
+
+A static preview of the injected UI is at [`chrome/demo/stack.html`](chrome/demo/stack.html).
+
+```sh
+cd chrome
+node --test
+```

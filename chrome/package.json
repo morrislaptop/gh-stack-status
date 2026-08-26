@@ -1,0 +1,8 @@
+{
+  "name": "gh-stack-status-chrome",
+  "private": true,
+  "description": "Tests for the Chrome extension that paints stack status on github.com",
+  "scripts": {
+    "test": "node --test test/*.test.js"
+  }
+}
