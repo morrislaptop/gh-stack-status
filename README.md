@@ -2,22 +2,22 @@
 
 A [GitHub CLI](https://cli.github.com/) extension that lists each pull request in a GitHub **stack**, with CI check rollup and reviewer status for every layer.
 
+![gh stack-status output](docs/example.svg)
+
 GitHub CLI extensions cannot add subcommands to another extension, so this is `gh stack-status`, not `gh stack status`. It does not wrap `gh stack view` and does not read `.git/gh-stack`. It uses the GitHub Stacks GraphQL/REST APIs, so only stacks that exist on GitHub are shown.
 
 ## Install
 
-Clone this repository into a directory whose name starts with `gh-` (GitHub CLI requires that), then install it as an extension:
-
 ```sh
-git clone <repo-url> gh-stack-status
-cd gh-stack-status
-gh extension install .
+gh extension install morrislaptop/gh-stack-status
 ```
 
-Or from GitHub after you publish the repo (the repository name should start with `gh-`):
+To work from a local clone instead, clone into a directory whose name starts with `gh-`, which GitHub CLI requires:
 
 ```sh
-gh extension install OWNER/gh-stack-status
+git clone https://github.com/morrislaptop/gh-stack-status.git
+cd gh-stack-status
+gh extension install .
 ```
 
 Requires [GitHub CLI](https://cli.github.com/) (`gh`) authenticated to a host that supports stacked pull requests.
@@ -45,14 +45,16 @@ A bare number is tried as a **stack number** first, then as a **pull request num
 ```
 Stack #6  targeting main  3 PRs
 
-  frontend        #103  pending (3/8)     review required (carol)
-» api-endpoints   #102  fail (lint)       changes requested (bob)
-  auth-layer      #101  pass (12/12)      approved (alice)
-────────────────
+  frontend       #103   pending (3/8, 2 skipped)  review required (carol)
+» api-endpoints  #102   fail (lint)               changes requested (bob)
+  auth-layer     #101   pass (12/12)              approved (alice)
+─────────────────────────────────────
   main
 ```
 
 The listing is top of stack first (furthest from trunk), then trunk at the bottom — the same orientation as `gh stack view`. `»` marks the currently checked-out branch.
+
+Color follows the usual GitHub CLI rules: it is on for terminals and off when piped, and honours `NO_COLOR`, `CLICOLOR_FORCE`, and `GH_FORCE_TTY`.
 
 **Checks** come from `statusCheckRollup` on each pull request:
 

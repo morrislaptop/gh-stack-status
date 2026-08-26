@@ -16,7 +16,21 @@ func PaletteFromEnv() Palette {
 	if !t.IsColorEnabled() {
 		return PlainPalette{}
 	}
-	return termenvPalette{out: termenv.NewOutput(os.Stdout)}
+	return termenvPalette{out: termenv.NewOutput(os.Stdout, termenv.WithProfile(profileFor(t)))}
+}
+
+// profileFor sets the color profile explicitly. termenv otherwise probes the
+// file descriptor and falls back to Ascii whenever stdout is not a terminal,
+// which would drop color under GH_FORCE_TTY or CLICOLOR_FORCE.
+func profileFor(t term.Term) termenv.Profile {
+	switch {
+	case t.IsTrueColorSupported():
+		return termenv.TrueColor
+	case t.Is256ColorSupported():
+		return termenv.ANSI256
+	default:
+		return termenv.ANSI
+	}
 }
 
 func (p termenvPalette) color(s, ansi string) string {
