@@ -228,7 +228,7 @@ func jsonString(s string) string {
 	return string(b)
 }
 
-func TestParseRebase(t *testing.T) {
+func TestParseRebaseWithoutComparison(t *testing.T) {
 	cases := []struct {
 		mergeable, state, want string
 	}{
@@ -244,9 +244,42 @@ func TestParseRebase(t *testing.T) {
 		{"", "", "UNKNOWN"},
 	}
 	for _, tc := range cases {
-		got := parseRebase(tc.mergeable, tc.state)
+		got := parseRebase(tc.mergeable, tc.state, nil)
 		if got.Status != tc.want {
-			t.Errorf("parseRebase(%q, %q) = %q, want %q", tc.mergeable, tc.state, got.Status, tc.want)
+			t.Errorf("parseRebase(%q, %q, nil) = %q, want %q", tc.mergeable, tc.state, got.Status, tc.want)
+		}
+	}
+}
+
+// The commit comparison decides being behind. mergeStateStatus reports BEHIND
+// only where the base branch requires branches to be up to date, and DIRTY or
+// BLOCKED mask it, so a stack GitHub offers to rebase usually reports CLEAN.
+func TestParseRebaseWithComparison(t *testing.T) {
+	cases := []struct {
+		name             string
+		mergeable, state string
+		cmp              model.Comparison
+		want             string
+	}{
+		{"behind while merge state says clean", "MERGEABLE", "CLEAN", model.Comparison{Status: "BEHIND", BehindBy: 4}, "BEHIND"},
+		{"behind while blocked masks it", "MERGEABLE", "BLOCKED", model.Comparison{Status: "DIVERGED", AheadBy: 2, BehindBy: 9}, "BEHIND"},
+		{"behind while checks fail", "MERGEABLE", "UNSTABLE", model.Comparison{Status: "DIVERGED", AheadBy: 1, BehindBy: 1}, "BEHIND"},
+		{"conflict outranks behind", "CONFLICTING", "DIRTY", model.Comparison{Status: "DIVERGED", AheadBy: 3, BehindBy: 3}, "CONFLICT"},
+		{"up to date", "MERGEABLE", "CLEAN", model.Comparison{Status: "AHEAD", AheadBy: 5}, "UP_TO_DATE"},
+		{"identical", "MERGEABLE", "CLEAN", model.Comparison{Status: "IDENTICAL"}, "UP_TO_DATE"},
+		// A head branch that already contains the tip of its base cannot
+		// conflict, so it is up to date even before GitHub computes mergeable.
+		{"up to date before mergeable is computed", "UNKNOWN", "UNKNOWN", model.Comparison{Status: "AHEAD", AheadBy: 2}, "UP_TO_DATE"},
+		{"behind before mergeable is computed", "UNKNOWN", "UNKNOWN", model.Comparison{Status: "BEHIND", BehindBy: 7}, "BEHIND"},
+	}
+	for _, tc := range cases {
+		cmp := tc.cmp
+		got := parseRebase(tc.mergeable, tc.state, &cmp)
+		if got.Status != tc.want {
+			t.Errorf("%s: parseRebase(%q, %q, %+v) = %q, want %q", tc.name, tc.mergeable, tc.state, cmp, got.Status, tc.want)
+		}
+		if got.Comparison == nil || got.Comparison.BehindBy != tc.cmp.BehindBy {
+			t.Errorf("%s: comparison not carried through: %+v", tc.name, got.Comparison)
 		}
 	}
 }

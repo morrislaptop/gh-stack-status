@@ -1,5 +1,7 @@
 package github
 
+import "strings"
+
 type gqlStackByPRData struct {
 	Repository *struct {
 		PullRequest *gqlPRWithStack `json:"pullRequest"`
@@ -30,16 +32,24 @@ type gqlStackEntry struct {
 }
 
 type gqlPR struct {
-	Number           int     `json:"number"`
-	Title            string  `json:"title"`
-	URL              string  `json:"url"`
-	State            string  `json:"state"`
-	IsDraft          bool    `json:"isDraft"`
-	HeadRefName      string  `json:"headRefName"`
+	Number              int    `json:"number"`
+	Title               string `json:"title"`
+	URL                 string `json:"url"`
+	State               string `json:"state"`
+	IsDraft             bool   `json:"isDraft"`
+	HeadRefName         string `json:"headRefName"`
+	BaseRefName         string `json:"baseRefName"`
+	IsCrossRepository   bool   `json:"isCrossRepository"`
+	HeadRepositoryOwner *struct {
+		Login string `json:"login"`
+	} `json:"headRepositoryOwner"`
 	Mergeable        string  `json:"mergeable"`
 	MergeStateStatus string  `json:"mergeStateStatus"`
 	ReviewDecision   *string `json:"reviewDecision"`
-	LatestReviews    struct {
+	// Comparison is filled in by a second query; the pull request itself does
+	// not carry a reliable out-of-date signal.
+	Comparison    *gqlComparison `json:"-"`
+	LatestReviews struct {
 		Nodes []struct {
 			Author *struct {
 				Login string `json:"login"`
@@ -53,6 +63,27 @@ type gqlPR struct {
 		} `json:"nodes"`
 	} `json:"reviewRequests"`
 	StatusCheckRollup *gqlRollup `json:"statusCheckRollup"`
+}
+
+// gqlComparison is a commit-ancestry comparison of a pull request's base branch
+// (as base) against its head branch.
+type gqlComparison struct {
+	Status   string `json:"status"`
+	AheadBy  int    `json:"aheadBy"`
+	BehindBy int    `json:"behindBy"`
+}
+
+// compareHeadRef is how the head branch is named in a comparison: bare for a
+// branch in this repository, owner-qualified for a fork.
+func (pr *gqlPR) compareHeadRef(owner string) string {
+	login := ""
+	if pr.HeadRepositoryOwner != nil {
+		login = pr.HeadRepositoryOwner.Login
+	}
+	if pr.IsCrossRepository && login != "" && !strings.EqualFold(login, owner) {
+		return login + ":" + pr.HeadRefName
+	}
+	return pr.HeadRefName
 }
 
 type gqlReviewer struct {

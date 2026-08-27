@@ -27,7 +27,10 @@ func sample() *model.Stack {
 				Branch: "api-endpoints", State: "OPEN", Position: 2,
 				Checks:  model.Checks{State: "FAILURE", Passed: 7, Failed: 1, Pending: 0, FailedNames: []string{"lint"}},
 				Reviews: model.Reviews{Decision: "CHANGES_REQUESTED", ChangesRequested: []string{"bob"}},
-				Rebase:  model.Rebase{Status: "BEHIND", Mergeable: "MERGEABLE", MergeStateStatus: "BEHIND"},
+				Rebase: model.Rebase{
+					Status: "BEHIND", Mergeable: "MERGEABLE", MergeStateStatus: "CLEAN",
+					Comparison: &model.Comparison{Status: "BEHIND", AheadBy: 0, BehindBy: 12},
+				},
 			},
 			{
 				Number: 103, Title: "ui", URL: "https://example.com/103",
@@ -131,6 +134,13 @@ func TestWriteJSON(t *testing.T) {
 	}
 	if out.PullRequests[1].Rebase.Status != "BEHIND" {
 		t.Fatalf("rebase %+v", out.PullRequests[1].Rebase)
+	}
+	cmp := out.PullRequests[1].Rebase.Comparison
+	if cmp == nil || cmp.BehindBy != 12 || cmp.Status != "BEHIND" {
+		t.Fatalf("comparison %+v", cmp)
+	}
+	if out.PullRequests[0].Rebase.Comparison != nil {
+		t.Fatalf("comparison should be null when GitHub could not compare: %+v", out.PullRequests[0].Rebase.Comparison)
 	}
 }
 
