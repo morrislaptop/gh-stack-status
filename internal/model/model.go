@@ -11,16 +11,17 @@ type Stack struct {
 }
 
 type PullRequest struct {
-	Number   int
-	Title    string
-	URL      string
-	Branch   string
-	State    string
-	Draft    bool
-	Position int
-	Checks   Checks
-	Reviews  Reviews
-	Rebase   Rebase
+	Number     int
+	Title      string
+	URL        string
+	Branch     string
+	BaseBranch string
+	State      string
+	Draft      bool
+	Position   int
+	Checks     Checks
+	Reviews    Reviews
+	Rebase     Rebase
 }
 
 // Rebase is whether this layer is up to date with the branch it targets
@@ -30,6 +31,16 @@ type Rebase struct {
 	Status           string
 	Mergeable        string // MERGEABLE, CONFLICTING, UNKNOWN
 	MergeStateStatus string // CLEAN, UNSTABLE, BEHIND, DIRTY, BLOCKED, ...
+	// Comparison is the commit-ancestry comparison of the base branch against
+	// the head branch, or nil when GitHub could not compute one.
+	Comparison *Comparison
+}
+
+// Comparison counts how far a head branch has drifted from its base branch.
+type Comparison struct {
+	Status   string // AHEAD, BEHIND, DIVERGED, IDENTICAL
+	AheadBy  int
+	BehindBy int
 }
 
 type Checks struct {

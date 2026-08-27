@@ -34,16 +34,17 @@ func parseGQLStack(meta *gqlStack, entries []gqlStackEntry) *model.Stack {
 
 func (pr *gqlPR) toModel(position int) model.PullRequest {
 	out := model.PullRequest{
-		Number:   pr.Number,
-		Title:    pr.Title,
-		URL:      pr.URL,
-		Branch:   pr.HeadRefName,
-		State:    pr.State,
-		Draft:    pr.IsDraft,
-		Position: position,
-		Checks:   parseChecks(pr.StatusCheckRollup),
-		Reviews:  parseReviews(pr.ReviewDecision, pr),
-		Rebase:   parseRebase(pr.Mergeable, pr.MergeStateStatus),
+		Number:     pr.Number,
+		Title:      pr.Title,
+		URL:        pr.URL,
+		Branch:     pr.HeadRefName,
+		BaseBranch: pr.BaseRefName,
+		State:      pr.State,
+		Draft:      pr.IsDraft,
+		Position:   position,
+		Checks:     parseChecks(pr.StatusCheckRollup),
+		Reviews:    parseReviews(pr.ReviewDecision, pr),
+		Rebase:     parseRebase(pr.Mergeable, pr.MergeStateStatus, parseComparison(pr.Comparison)),
 	}
 	return out
 }
@@ -212,13 +213,37 @@ func parseReviews(decision *string, pr *gqlPR) model.Reviews {
 	return r
 }
 
-func parseRebase(mergeable, mergeState string) model.Rebase {
+func parseComparison(cmp *gqlComparison) *model.Comparison {
+	if cmp == nil {
+		return nil
+	}
+	return &model.Comparison{
+		Status:   strings.ToUpper(strings.TrimSpace(cmp.Status)),
+		AheadBy:  cmp.AheadBy,
+		BehindBy: cmp.BehindBy,
+	}
+}
+
+// parseRebase decides whether a layer still sits on top of the branch it
+// targets.
+//
+// A commit comparison, when GitHub gives one, settles being behind on its own:
+// mergeStateStatus reports BEHIND only where the base branch requires branches
+// to be up to date, and DIRTY or BLOCKED mask it. A head branch that already
+// contains the tip of its base cannot conflict either, so behindBy == 0 means up
+// to date even while mergeable is still UNKNOWN. Conflicts are the one part only
+// GitHub can answer, so mergeable keeps precedence there.
+func parseRebase(mergeable, mergeState string, cmp *model.Comparison) model.Rebase {
 	m := strings.ToUpper(strings.TrimSpace(mergeable))
 	s := strings.ToUpper(strings.TrimSpace(mergeState))
-	r := model.Rebase{Mergeable: m, MergeStateStatus: s}
+	r := model.Rebase{Mergeable: m, MergeStateStatus: s, Comparison: cmp}
 	switch {
 	case m == "CONFLICTING" || s == "DIRTY":
 		r.Status = "CONFLICT"
+	case cmp != nil && cmp.BehindBy > 0:
+		r.Status = "BEHIND"
+	case cmp != nil:
+		r.Status = "UP_TO_DATE"
 	case s == "BEHIND":
 		r.Status = "BEHIND"
 	case m == "UNKNOWN" || s == "UNKNOWN" || (m == "" && s == ""):

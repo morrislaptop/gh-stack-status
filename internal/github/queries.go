@@ -29,6 +29,9 @@ fragment PRStatus on PullRequest {
   state
   isDraft
   headRefName
+  baseRefName
+  isCrossRepository
+  headRepositoryOwner { login }
   mergeable
   mergeStateStatus
   reviewDecision
@@ -91,6 +94,10 @@ query StackByPR($owner: String!, $name: String!, $number: Int!, $cursor: String)
 
 const prsByNumbersPrefix = prStatusFragment + `
 query PRsByNumbers($owner: String!, $name: String!`
+
+// comparisonsPrefix starts the batched base-vs-head comparison query. One
+// aliased ref/compare pair is appended per pull request.
+const comparisonsPrefix = `query Comparisons($owner: String!, $name: String!`
 
 // prContextsQuery fetches additional pages of a single pull request's check contexts.
 const prContextsQuery = `

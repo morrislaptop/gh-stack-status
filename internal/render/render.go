@@ -53,23 +53,31 @@ type jsonStack struct {
 }
 
 type jsonPR struct {
-	Number    int         `json:"number"`
-	Title     string      `json:"title"`
-	URL       string      `json:"url"`
-	Branch    string      `json:"branch"`
-	State     string      `json:"state"`
-	Draft     bool        `json:"draft"`
-	IsCurrent bool        `json:"isCurrent"`
-	Position  int         `json:"position"`
-	Rebase    jsonRebase  `json:"rebase"`
-	Checks    jsonChecks  `json:"checks"`
-	Reviews   jsonReviews `json:"reviews"`
+	Number     int         `json:"number"`
+	Title      string      `json:"title"`
+	URL        string      `json:"url"`
+	Branch     string      `json:"branch"`
+	BaseBranch string      `json:"baseBranch"`
+	State      string      `json:"state"`
+	Draft      bool        `json:"draft"`
+	IsCurrent  bool        `json:"isCurrent"`
+	Position   int         `json:"position"`
+	Rebase     jsonRebase  `json:"rebase"`
+	Checks     jsonChecks  `json:"checks"`
+	Reviews    jsonReviews `json:"reviews"`
 }
 
 type jsonRebase struct {
-	Status           string `json:"status"`
-	Mergeable        string `json:"mergeable"`
-	MergeStateStatus string `json:"mergeStateStatus"`
+	Status           string          `json:"status"`
+	Mergeable        string          `json:"mergeable"`
+	MergeStateStatus string          `json:"mergeStateStatus"`
+	Comparison       *jsonComparison `json:"comparison"`
+}
+
+type jsonComparison struct {
+	Status   string `json:"status"`
+	AheadBy  int    `json:"aheadBy"`
+	BehindBy int    `json:"behindBy"`
 }
 
 type jsonChecks struct {
@@ -100,18 +108,20 @@ func writeJSON(w io.Writer, stack *model.Stack) error {
 			failed = []string{}
 		}
 		out.PullRequests = append(out.PullRequests, jsonPR{
-			Number:    pr.Number,
-			Title:     pr.Title,
-			URL:       pr.URL,
-			Branch:    pr.Branch,
-			State:     pr.State,
-			Draft:     pr.Draft,
-			IsCurrent: pr.IsCurrent(stack.CurrentBranch),
-			Position:  pr.Position,
+			Number:     pr.Number,
+			Title:      pr.Title,
+			URL:        pr.URL,
+			Branch:     pr.Branch,
+			BaseBranch: pr.BaseBranch,
+			State:      pr.State,
+			Draft:      pr.Draft,
+			IsCurrent:  pr.IsCurrent(stack.CurrentBranch),
+			Position:   pr.Position,
 			Rebase: jsonRebase{
 				Status:           pr.Rebase.Status,
 				Mergeable:        pr.Rebase.Mergeable,
 				MergeStateStatus: pr.Rebase.MergeStateStatus,
+				Comparison:       jsonComparisonOf(pr.Rebase.Comparison),
 			},
 			Checks: jsonChecks{
 				State:       pr.Checks.State,
@@ -132,6 +142,13 @@ func writeJSON(w io.Writer, stack *model.Stack) error {
 	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")
 	return enc.Encode(out)
+}
+
+func jsonComparisonOf(c *model.Comparison) *jsonComparison {
+	if c == nil {
+		return nil
+	}
+	return &jsonComparison{Status: c.Status, AheadBy: c.AheadBy, BehindBy: c.BehindBy}
 }
 
 func nonNil(s []string) []string {

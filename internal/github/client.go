@@ -181,13 +181,89 @@ func (c *Client) queryStackByPR(owner, repo string, number int) (*model.Stack, *
 	if meta == nil {
 		return nil, first, nil
 	}
+	prs := make([]*gqlPR, 0, len(entries))
 	for _, e := range entries {
 		if err := c.fetchRemainingContexts(owner, repo, e.PullRequest); err != nil {
 			return nil, nil, err
 		}
+		if e.PullRequest != nil {
+			prs = append(prs, e.PullRequest)
+		}
 	}
+	c.fillComparisons(owner, repo, prs)
 	stack := parseGQLStack(meta, entries)
 	return stack, first, nil
+}
+
+// comparisonBatch is how many ref comparisons are asked for in one query.
+const comparisonBatch = 20
+
+// fillComparisons attaches a base-vs-head commit comparison to each open pull
+// request.
+//
+// mergeStateStatus is not a usable out-of-date signal on its own: GitHub only
+// reports BEHIND when the base branch requires branches to be up to date before
+// merging, and DIRTY or BLOCKED outrank and mask it. A stack that GitHub itself
+// offers to rebase therefore usually reports CLEAN. Commit ancestry answers the
+// question directly, whatever the branch protection.
+//
+// The comparison is supplementary, so failures leave the merge-state answer in
+// place rather than failing the command; older GitHub Enterprise versions may
+// not serve the field at all.
+func (c *Client) fillComparisons(owner, repo string, prs []*gqlPR) {
+	var todo []*gqlPR
+	for _, pr := range prs {
+		if pr == nil || pr.BaseRefName == "" || pr.HeadRefName == "" {
+			continue
+		}
+		if pr.State != "" && !strings.EqualFold(pr.State, "OPEN") {
+			continue
+		}
+		todo = append(todo, pr)
+	}
+	for start := 0; start < len(todo); start += comparisonBatch {
+		end := start + comparisonBatch
+		if end > len(todo) {
+			end = len(todo)
+		}
+		c.fillComparisonBatch(owner, repo, todo[start:end])
+	}
+}
+
+func (c *Client) fillComparisonBatch(owner, repo string, prs []*gqlPR) {
+	var b strings.Builder
+	b.WriteString(comparisonsPrefix)
+	vars := map[string]interface{}{
+		"owner": owner,
+		"name":  repo,
+	}
+	for i, pr := range prs {
+		fmt.Fprintf(&b, ", $b%d: String!, $h%d: String!", i, i)
+		vars[fmt.Sprintf("b%d", i)] = "refs/heads/" + strings.TrimPrefix(pr.BaseRefName, "refs/heads/")
+		vars[fmt.Sprintf("h%d", i)] = pr.compareHeadRef(owner)
+	}
+	b.WriteString(") {\n  repository(owner: $owner, name: $name) {\n")
+	for i := range prs {
+		fmt.Fprintf(&b, "    c%d: ref(qualifiedName: $b%d) { compare(headRef: $h%d) { status aheadBy behindBy } }\n", i, i, i)
+	}
+	b.WriteString("  }\n}\n")
+
+	var data struct {
+		Repository map[string]*struct {
+			Compare *gqlComparison `json:"compare"`
+		} `json:"repository"`
+	}
+	// Errors and partial data arrive together when only some aliases fail — a
+	// deleted base branch cannot be compared but must not cost the rest of the
+	// batch its answer — so whatever came back is used either way.
+	_ = c.gql.Do(b.String(), vars, &data)
+	for i, pr := range prs {
+		ref, ok := data.Repository[fmt.Sprintf("c%d", i)]
+		if !ok || ref == nil || ref.Compare == nil {
+			continue
+		}
+		pr.Comparison = ref.Compare
+	}
 }
 
 // fetchRemainingContexts pages through check contexts beyond the first page.
@@ -295,14 +371,19 @@ func (c *Client) queryPRsByNumbers(owner, repo string, numbers []int) ([]model.P
 	if wrap.Repository == nil {
 		return out, nil
 	}
+	found := make([]*gqlPR, 0, len(numbers))
 	for i := range numbers {
 		alias := fmt.Sprintf("n%d", i)
 		if pr, ok := wrap.Repository[alias]; ok && pr != nil {
 			if err := c.fetchRemainingContexts(owner, repo, pr); err != nil {
 				return nil, err
 			}
-			out = append(out, pr.toModel(i+1))
+			found = append(found, pr)
 		}
+	}
+	c.fillComparisons(owner, repo, found)
+	for i, pr := range found {
+		out = append(out, pr.toModel(i+1))
 	}
 	return out, nil
 }

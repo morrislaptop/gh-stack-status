@@ -56,16 +56,18 @@ The listing is top of stack first (furthest from trunk), then trunk at the botto
 
 Color follows the usual GitHub CLI rules: it is on for terminals and off when piped, and honours `NO_COLOR`, `CLICOLOR_FORCE`, and `GH_FORCE_TTY`.
 
-**Rebase** is whether this layer is up to date with the branch it targets — the PR below it, or trunk for the bottom of the stack. It comes from `mergeable` and `mergeStateStatus`, not from local `gh stack` metadata.
+**Rebase** is whether this layer is up to date with the branch it targets — the PR below it, or trunk for the bottom of the stack.
 
 | State | Display |
 |-------|---------|
-| current with its base | `up to date` |
-| head is behind the base (`BEHIND`) | `behind` |
+| base branch is contained in the head branch | `up to date` |
+| head branch is missing commits from its base | `behind` |
 | cannot merge cleanly (`CONFLICTING` / `DIRTY`) | `conflict` |
-| GitHub has not computed it yet | `—` |
+| GitHub could not compare the branches and has no merge state yet | `—` |
 
-Failing checks (`UNSTABLE`) and branch-protection blocks (`BLOCKED`) are not rebase problems; those still show as `up to date`.
+Being behind is read from commit ancestry, by comparing each PR's base branch against its head branch (`aheadBy` / `behindBy`), not from `mergeStateStatus`. That field is not a usable staleness signal on its own: GitHub reports `BEHIND` only when the base branch has **Require branches to be up to date before merging** enabled, and `DIRTY` and `BLOCKED` outrank and mask it. A stack that GitHub itself offers to rebase onto the latest trunk usually reports `CLEAN`, which is why it read as `up to date`. The comparison is authoritative regardless of branch protection, review state, and CI state, and it answers before GitHub has computed `mergeable`, since a head branch that already contains the tip of its base cannot conflict.
+
+`mergeable` still decides `conflict`, which only GitHub can work out. Failing checks (`UNSTABLE`) and branch-protection blocks (`BLOCKED`) are not rebase problems, so those still show as `up to date` when the branch is current. If the comparison cannot be fetched — an older GitHub Enterprise, or a deleted base branch — the column falls back to `mergeable` and `mergeStateStatus`.
 
 **Checks** come from `statusCheckRollup` on each pull request:
 
@@ -91,7 +93,7 @@ Repeated runs of the same check are collapsed to the most recent run, keyed by c
 
 `--short` prints one line per PR: number, rebase, checks, reviews.
 
-`--json` prints bottom-to-top stack data (position 1 first), including rebase status, check counts, failed names, and reviewer logins. Suitable for scripts.
+`--json` prints bottom-to-top stack data (position 1 first), including rebase status with the `aheadBy` / `behindBy` comparison (`null` when GitHub could not compare the branches), check counts, failed names, and reviewer logins. Suitable for scripts.
 
 ## Develop
 

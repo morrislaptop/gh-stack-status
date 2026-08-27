@@ -76,6 +76,168 @@ func TestLoadStackByPRGraphQL(t *testing.T) {
 	}
 }
 
+// routedGQL answers each query by matching a substring of it, so a test can
+// serve the stack query and the comparison query without depending on call
+// order.
+type routedGQL struct {
+	routes  map[string]string
+	queries []string
+}
+
+func (r *routedGQL) Do(query string, variables map[string]interface{}, response interface{}) error {
+	r.queries = append(r.queries, query)
+	for marker, body := range r.routes {
+		if strings.Contains(query, marker) {
+			return json.Unmarshal([]byte(body), response)
+		}
+	}
+	return fmt.Errorf("no route for query: %s", query)
+}
+
+// A stack that is behind its base reports CLEAN when the base branch does not
+// require branches to be up to date, so the commit comparison has to be what
+// decides it.
+func TestLoadStackByPRUsesComparisonForBehind(t *testing.T) {
+	gql := &routedGQL{routes: map[string]string{
+		"query StackByPR": `{
+			"repository": {
+				"pullRequest": {
+					"number": 102,
+					"headRefName": "api-endpoints",
+					"baseRefName": "auth-layer",
+					"state": "OPEN",
+					"stack": {
+						"number": 6,
+						"size": 2,
+						"baseRefName": "main",
+						"entries": {
+							"pageInfo": {"hasNextPage": false},
+							"nodes": [
+								{"position": 1, "pullRequest": {"number": 101, "state": "OPEN", "headRefName": "auth-layer", "baseRefName": "main", "mergeable": "MERGEABLE", "mergeStateStatus": "CLEAN"}},
+								{"position": 2, "pullRequest": {"number": 102, "state": "OPEN", "headRefName": "api-endpoints", "baseRefName": "auth-layer", "mergeable": "MERGEABLE", "mergeStateStatus": "BLOCKED"}}
+							]
+						}
+					}
+				}
+			}
+		}`,
+		"query Comparisons": `{
+			"repository": {
+				"c0": {"compare": {"status": "BEHIND", "aheadBy": 0, "behindBy": 12}},
+				"c1": {"compare": {"status": "AHEAD", "aheadBy": 3, "behindBy": 0}}
+			}
+		}`,
+	}}
+	c := NewTestClient(gql, &fakeREST{status: 404, body: "[]"})
+	stack, err := c.LoadStackByPR("o", "r", 102)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bottom, top := stack.PullRequests[0], stack.PullRequests[1]
+	if bottom.Rebase.Status != "BEHIND" {
+		t.Fatalf("#%d: got %q, want BEHIND (12 commits behind main)", bottom.Number, bottom.Rebase.Status)
+	}
+	if bottom.Rebase.Comparison == nil || bottom.Rebase.Comparison.BehindBy != 12 {
+		t.Fatalf("#%d comparison %+v", bottom.Number, bottom.Rebase.Comparison)
+	}
+	if top.Rebase.Status != "UP_TO_DATE" {
+		t.Fatalf("#%d: got %q, want UP_TO_DATE", top.Number, top.Rebase.Status)
+	}
+	if bottom.BaseBranch != "main" || top.BaseBranch != "auth-layer" {
+		t.Fatalf("base branches %q %q", bottom.BaseBranch, top.BaseBranch)
+	}
+}
+
+// The comparison is supplementary: when it cannot be fetched, the merge-state
+// answer stands and the stack still renders.
+func TestComparisonFailureLeavesMergeStateAnswer(t *testing.T) {
+	gql := &routedGQL{routes: map[string]string{
+		"query StackByPR": `{
+			"repository": {
+				"pullRequest": {
+					"number": 101,
+					"headRefName": "auth-layer",
+					"state": "OPEN",
+					"stack": {
+						"number": 6,
+						"baseRefName": "main",
+						"entries": {
+							"pageInfo": {},
+							"nodes": [
+								{"position": 1, "pullRequest": {"number": 101, "state": "OPEN", "headRefName": "auth-layer", "baseRefName": "main", "mergeable": "MERGEABLE", "mergeStateStatus": "BEHIND"}}
+							]
+						}
+					}
+				}
+			}
+		}`,
+	}}
+	c := NewTestClient(gql, &fakeREST{status: 404, body: "[]"})
+	stack, err := c.LoadStackByPR("o", "r", 101)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := stack.PullRequests[0].Rebase.Status; got != "BEHIND" {
+		t.Fatalf("got %q, want BEHIND from mergeStateStatus", got)
+	}
+	if stack.PullRequests[0].Rebase.Comparison != nil {
+		t.Fatalf("comparison should be absent: %+v", stack.PullRequests[0].Rebase.Comparison)
+	}
+}
+
+// Closed and merged layers are not compared: their branches have moved on and a
+// comparison would report drift that no rebase is expected to fix.
+func TestComparisonSkipsClosedPullRequests(t *testing.T) {
+	gql := &routedGQL{routes: map[string]string{
+		"query Comparisons": `{"repository": {"c0": {"compare": {"status": "BEHIND", "behindBy": 4}}}}`,
+	}}
+	c := NewTestClient(gql, &fakeREST{})
+	open := &gqlPR{Number: 1, State: "OPEN", HeadRefName: "feat", BaseRefName: "main"}
+	merged := &gqlPR{Number: 2, State: "MERGED", HeadRefName: "old", BaseRefName: "main"}
+	c.fillComparisons("o", "r", []*gqlPR{merged, open})
+
+	if merged.Comparison != nil {
+		t.Fatalf("merged PR compared: %+v", merged.Comparison)
+	}
+	if open.Comparison == nil || open.Comparison.BehindBy != 4 {
+		t.Fatalf("open PR comparison %+v", open.Comparison)
+	}
+	if len(gql.queries) != 1 {
+		t.Fatalf("queries %d, want 1", len(gql.queries))
+	}
+	want := "c0: ref(qualifiedName: $b0) { compare(headRef: $h0) { status aheadBy behindBy } }"
+	if !strings.Contains(gql.queries[0], want) {
+		t.Fatalf("query does not compare the base ref against the head ref:\n%s", gql.queries[0])
+	}
+}
+
+func TestComparisonBatchesLargeStacks(t *testing.T) {
+	gql := &routedGQL{routes: map[string]string{"query Comparisons": `{"repository": {}}`}}
+	c := NewTestClient(gql, &fakeREST{})
+	prs := make([]*gqlPR, 0, comparisonBatch+1)
+	for i := 0; i <= comparisonBatch; i++ {
+		prs = append(prs, &gqlPR{Number: i + 1, State: "OPEN", HeadRefName: fmt.Sprintf("layer-%d", i), BaseRefName: "main"})
+	}
+	c.fillComparisons("o", "r", prs)
+	if len(gql.queries) != 2 {
+		t.Fatalf("queries %d, want 2 batches for %d pull requests", len(gql.queries), len(prs))
+	}
+}
+
+func TestCompareHeadRefQualifiesForks(t *testing.T) {
+	same := &gqlPR{HeadRefName: "feat"}
+	if got := same.compareHeadRef("o"); got != "feat" {
+		t.Fatalf("same repo: %q", got)
+	}
+	fork := &gqlPR{HeadRefName: "feat", IsCrossRepository: true}
+	fork.HeadRepositoryOwner = &struct {
+		Login string `json:"login"`
+	}{Login: "contributor"}
+	if got := fork.compareHeadRef("o"); got != "contributor:feat" {
+		t.Fatalf("fork: %q", got)
+	}
+}
+
 func TestLoadStackByPRFallsBackToREST(t *testing.T) {
 	gql := &fakeGQL{stackJSON: `{
 		"repository": {
